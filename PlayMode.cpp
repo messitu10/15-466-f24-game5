@@ -12,17 +12,18 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <random>
+#include <iostream>
 
 GLuint phonebank_meshes_for_lit_color_texture_program = 0;
-Load< MeshBuffer > phonebank_meshes(LoadTagDefault, []() -> MeshBuffer const * {
-	MeshBuffer const *ret = new MeshBuffer(data_path("phone-bank.pnct"));
+Load< MeshBuffer > pitch_meshes(LoadTagDefault, []() -> MeshBuffer const * {
+	MeshBuffer const *ret = new MeshBuffer(data_path("pitch.pnct"));
 	phonebank_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
 	return ret;
 });
 
-Load< Scene > phonebank_scene(LoadTagDefault, []() -> Scene const * {
-	return new Scene(data_path("phone-bank.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
-		Mesh const &mesh = phonebank_meshes->lookup(mesh_name);
+Load< Scene > pitch_scene(LoadTagDefault, []() -> Scene const * {
+	return new Scene(data_path("pitch.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
+		Mesh const &mesh = pitch_meshes->lookup(mesh_name);
 
 		scene.drawables.emplace_back(transform);
 		Scene::Drawable &drawable = scene.drawables.back();
@@ -38,16 +39,48 @@ Load< Scene > phonebank_scene(LoadTagDefault, []() -> Scene const * {
 });
 
 WalkMesh const *walkmesh = nullptr;
-Load< WalkMeshes > phonebank_walkmeshes(LoadTagDefault, []() -> WalkMeshes const * {
-	WalkMeshes *ret = new WalkMeshes(data_path("phone-bank.w"));
+Load< WalkMeshes > pitch_walkmeshes(LoadTagDefault, []() -> WalkMeshes const * {
+	WalkMeshes *ret = new WalkMeshes(data_path("pitch.w"));
 	walkmesh = &ret->lookup("WalkMesh");
 	return ret;
 });
 
-PlayMode::PlayMode() : scene(*phonebank_scene) {
+PlayMode::PlayMode() : scene(*pitch_scene) {
+	for (auto &transform : scene.transforms) {
+		if (transform.name == "Player") player_transform = &transform;
+		else if (transform.name == "Sphere") ball = &transform;
+	}
+
+	if (player_transform == nullptr) throw std::runtime_error("Player not found.");
+	if (ball == nullptr) throw std::runtime_error("Ball not found.");
+
+
+
 	//create a player transform:
-	scene.transforms.emplace_back();
-	player.transform = &scene.transforms.back();
+	// scene.transforms.emplace_back();
+	// player.transform = &scene.transforms.back();
+
+	player.transform = player_transform;
+	player_spawn_position = glm::vec3(0.0f, -3.0f, 0.0f);
+	
+	ball_spawn_position = ball->position;
+	ball->position = glm::vec3(0.0f, -5.5f, 0.5f);
+
+	ball_goal_positions.emplace_back(glm::vec3(3.8f, -8.5f, 0.5f));
+	ball_goal_positions.emplace_back(glm::vec3(-3.8f, -8.5f, 0.5f));
+	ball_goal_positions.emplace_back(glm::vec3(1.0f, -8.5f, 0.5f));	
+	ball_goal_positions.emplace_back(glm::vec3(-1.0f, -8.5f, 0.5f));	
+	ball_goal_positions.emplace_back(glm::vec3(2.5f, -8.5f, 0.5f));
+	ball_goal_positions.emplace_back(glm::vec3(-2.5f, -8.5f, 0.5f));
+
+	ball_goal_positions.emplace_back(glm::vec3(3.8f, -8.5f, 1.0f));
+	ball_goal_positions.emplace_back(glm::vec3(-3.8f, -8.5f, 1.0f));
+	ball_goal_positions.emplace_back(glm::vec3(1.0f, -8.5f, 1.0f));	
+	ball_goal_positions.emplace_back(glm::vec3(-1.0f, -8.5f, 1.0f));	
+	ball_goal_positions.emplace_back(glm::vec3(2.5f, -8.5f, 1.0f));
+	ball_goal_positions.emplace_back(glm::vec3(-2.5f, -8.5f, 1.0f));
+
+	ball_target_position = getTargetPosition();
 
 	//create a player camera attached to a child of the player transform:
 	scene.transforms.emplace_back();
@@ -58,7 +91,7 @@ PlayMode::PlayMode() : scene(*phonebank_scene) {
 	player.camera->transform->parent = player.transform;
 
 	//player's eyes are 1.8 units above the ground:
-	player.camera->transform->position = glm::vec3(0.0f, 0.0f, 1.8f);
+	player.camera->transform->position = glm::vec3(0.0f, -3.0f, 3.0f);
 
 	//rotate camera facing direction (-z) to player facing direction (+y):
 	player.camera->transform->rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -136,11 +169,19 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 	return false;
 }
 
+glm::vec3 PlayMode::getTargetPosition(){
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_int_distribution<> distr(0, ball_goal_positions.size() - 1);
+		goal_position_index = distr(gen);
+		return ball_goal_positions[goal_position_index];
+}
+
 void PlayMode::update(float elapsed) {
 	//player walking:
 	{
 		//combine inputs into a move:
-		constexpr float PlayerSpeed = 3.0f;
+		constexpr float PlayerSpeed = 3.5f;
 		glm::vec2 move = glm::vec2(0.0f);
 		if (left.pressed && !right.pressed) move.x =-1.0f;
 		if (!left.pressed && right.pressed) move.x = 1.0f;
@@ -220,6 +261,33 @@ void PlayMode::update(float elapsed) {
 
 		camera->transform->position += move.x * right + move.y * forward;
 		*/
+	}
+
+	//ball moving
+	{
+		constexpr float BallSpeed = 2.0f;
+		if (ball->position != ball_target_position && !save) {
+			ball->position = glm::mix(ball->position, ball_target_position, BallSpeed * elapsed);
+
+			if (glm::distance(ball->position, ball_target_position) < 0.1f) {
+				save = true;
+				ball->position = ball_spawn_position;
+				ball_target_position = getTargetPosition();
+			}
+			else if(glm::distance(ball->position, player.transform->position) < 1.0f){
+				save = true;
+				ball->position = ball_spawn_position;
+				ball_target_position = getTargetPosition();
+			}
+    	}
+	}
+
+	if(save){
+		spawn_wait_time += elapsed;
+		if(spawn_wait_time >= 2.0f){
+			save = false;
+			spawn_wait_time = 0.0f;
+		}
 	}
 
 	//reset button press counters:

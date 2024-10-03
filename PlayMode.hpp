@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <deque>
+#include <random>
 
 struct PlayMode : Mode {
 	PlayMode();
@@ -27,6 +28,21 @@ struct PlayMode : Mode {
 
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
+
+	Scene::Transform *player_transform = nullptr;
+	Scene::Transform *ball = nullptr;
+
+	glm::vec3 player_spawn_position;
+	glm::vec3 ball_spawn_position;
+	glm::vec3 ball_target_position;
+	std::vector<glm::vec3> ball_goal_positions;
+	bool spawn = false;
+	bool save = false;
+	size_t goal_position_index = 0;
+
+	float spawn_wait_time = 0.0f;
+
+	glm::vec3 getTargetPosition();
 
 	//player info:
 	struct Player {
